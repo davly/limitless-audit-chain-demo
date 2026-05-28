@@ -1,0 +1,32 @@
+# limitless-audit-chain-demo -- Go flagship standard .gitignore (I20 2026-05-28)
+# Cohort-port from inception per R174 5-of-5 strict (anchor: canopy + bias-audit).
+
+# Go build artefacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# /audit-chain-demo = root-level build artefact (from `go build .` or
+# `go build -o audit-chain-demo ./cmd/audit-chain-demo`); root-anchored
+# so it does NOT match the cmd/audit-chain-demo/ source directory.
+/audit-chain-demo
+
+# Go test + coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Editor scratch
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Defensive -- no secrets in repo (this demo has zero env reads today;
+# defensive guard ships ahead of any Phase-2 work).
+.env
+.env.local
+.env.*.local
