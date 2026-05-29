@@ -10,10 +10,11 @@ import (
 )
 
 // ExpectedPackages returns the canonical list of internal/ packages
-// limitless-audit-chain-demo ships as of I20 (2026-05-28 launch).
+// limitless-audit-chain-demo ships as of W58 (2026-05-29 R193 wire-in).
 //
-// 8 packages from inception:
+// 9 packages:
 //   - chain      (load-bearing composition library — the SHOWCASE)
+//   - crosssdk   (W58 R193 real-import wire-in — recall+grounded+delve cohort/lore)
 //   - emitters   (I20 stand-ins for delve/grounded/recall/echo/parallax)
 //   - firewall   (this package — R145.C)
 //   - honest     (R143)
@@ -23,11 +24,12 @@ import (
 //   - mirrormark (L43 — placeholder signature surface today)
 //
 // The R174 5-of-5 "core cohort" is: lore + mirrormark + manifest +
-// honest + firewall. The demo adds 3 domain packages on top: chain +
-// emitters + legal (legal joins the R166 cohort).
+// honest + firewall. The demo adds 4 domain packages on top: chain +
+// crosssdk + emitters + legal (legal joins the R166 cohort).
 func ExpectedPackages() []string {
 	return []string{
 		"chain",
+		"crosssdk",
 		"emitters",
 		"firewall",
 		"honest",
