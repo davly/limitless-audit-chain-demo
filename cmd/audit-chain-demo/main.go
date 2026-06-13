@@ -25,6 +25,7 @@ import (
 	"github.com/davly/limitless-audit-chain-demo/internal/legal"
 	"github.com/davly/limitless-audit-chain-demo/internal/lore"
 	"github.com/davly/limitless-audit-chain-demo/internal/manifest"
+	"github.com/davly/limitless-audit-chain-demo/internal/persist"
 )
 
 const version = "0.1.0-I20-1st-saturator"
@@ -34,6 +35,9 @@ func usage() {
 
 Commands:
   run                  Run the 5-step pipeline + print + verify the chain
+  persist              Run the pipeline, store receipts via FNV-1a shard keys,
+                       and print the Beta-Binomial convergence report
+                       (x-poll: quarry-db FNV-1a + Beta-Binomial engine)
   advisories           List R143 honest advisories
   footer               Print the founder-drafted legal footer
   kat1                 Print KAT-1 cohort hex + OpenSSL cold-verify recipe
@@ -71,6 +75,13 @@ func main() {
 		_ = fs.Parse(rest)
 		if err := runDemo(os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "demo run: %v\n", err)
+			os.Exit(3)
+		}
+
+	case "persist":
+		_ = fs.Parse(rest)
+		if err := runPersistDemo(os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "persist demo: %v\n", err)
 			os.Exit(3)
 		}
 
@@ -193,4 +204,58 @@ func short(s string) string {
 		return s
 	}
 	return s[:16] + "..." + s[len(s)-4:]
+}
+
+// runPersistDemo runs the 5-step pipeline and stores each receipt in a
+// ChainStore (quarry-db x-poll: FNV-1a 64-bit shard keys + Beta-Binomial
+// convergence engine). Prints the shard-key table and convergence report.
+func runPersistDemo(out *os.File) error {
+	t0 := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	step := time.Second
+
+	cs := persist.NewChainStore()
+
+	// Build and store each receipt.
+	delvePayload := []byte(`{"schema":"audit_event","cols":["actor","ts","payload_sha256"],"version":1}`)
+	r1 := emitters.EmitDelveReceipt(delvePayload, chain.GenesisPrevHash, t0)
+	if err := cs.Append(r1); err != nil {
+		return fmt.Errorf("store r1: %w", err)
+	}
+
+	groundedPayload := []byte(`{"citation":"R-CROSS-INFRA-AUDIT-CHAIN-EMIT","corpus_sha256":"abc...","section":"part-xii"}`)
+	r2 := emitters.EmitGroundedReceipt(groundedPayload, r1.Hash(), t0.Add(step))
+	if err := cs.Append(r2); err != nil {
+		return fmt.Errorf("store r2: %w", err)
+	}
+
+	recallPayload := []byte(`{"key":"corpus_sha256:abc...","value_sha256":"def...","ttl_s":3600}`)
+	r3 := emitters.EmitRecallReceipt(recallPayload, r2.Hash(), t0.Add(2*step))
+	if err := cs.Append(r3); err != nil {
+		return fmt.Errorf("store r3: %w", err)
+	}
+
+	echoPayload := []byte(`{"event":"citation.lookup","outcome":"hit","latency_ms":3}`)
+	r4 := emitters.EmitEchoReceipt(echoPayload, r3.Hash(), t0.Add(3*step))
+	if err := cs.Append(r4); err != nil {
+		return fmt.Errorf("store r4: %w", err)
+	}
+
+	parallaxPayload := []byte(`{"job":"citation.process","handler":"limitless.audit","priority":"normal"}`)
+	r5 := emitters.EmitParallaxReceipt(parallaxPayload, r4.Hash(), t0.Add(4*step))
+	if err := cs.Append(r5); err != nil {
+		return fmt.Errorf("store r5: %w", err)
+	}
+
+	// Verify the reconstructed chain.
+	c := cs.Chain()
+	verifier := emitters.MirrorMarkVerifier()
+	if err := c.Verify(verifier); err != nil {
+		return fmt.Errorf("chain Verify after store: %w", err)
+	}
+
+	fmt.Fprintf(out, "R-CROSS-INFRA-AUDIT-CHAIN-EMIT — persist demo (quarry-db x-poll)\n\n")
+	fmt.Fprintf(out, "Chain verification: PASS  (5/5 receipts verified from ChainStore)\n\n")
+	fmt.Fprintf(out, "%s\n", cs.ShardSummary())
+	fmt.Fprintf(out, "%s\n", cs.ConvergenceReport())
+	return nil
 }
