@@ -1,77 +1,80 @@
-// Package chain is the composition library that turns N independent
-// signed receipts into a single tamper-evident audit chain — the
-// load-bearing primitive behind R-CROSS-INFRA-AUDIT-CHAIN-EMIT.
+// Package chain is the demo's composition library for turning N
+// independent signed receipts into a single tamper-evident audit chain
+// — the load-bearing primitive behind R-CROSS-INFRA-AUDIT-CHAIN-EMIT.
 //
-// # Why this package exists (R-CROSS-INFRA-AUDIT-CHAIN-EMIT canonical demo)
+// # Repoint to the canonical SDK (cross-poll graft)
 //
-// The Limitless cohort ships ~five infrastructure flagships that each
-// emit signed receipts at trust boundaries:
+// This package was originally an in-tree FORK of the audit-chain
+// primitive. It is now a thin RE-EXPORT SHIM over the cohort-canonical
+// SDK extraction #8:
 //
-//   - delve     — emits a receipt when a schema-card lands at a
-//     database boundary.
-//   - grounded  — emits a receipt when a citation is retrieved from
-//     an authoritative corpus.
-//   - recall    — emits a receipt when a citation lookup is cached.
-//   - echo      — emits a receipt when an event is published.
-//   - parallax  — emits a receipt when a job is dispatched.
+//	github.com/davly/limitless-audit-chain/pkg/chain
 //
-// Individually each receipt is sound: an OpenSSL one-liner with the
-// signer's public verification material proves "this signer attested
-// to this payload at this time." But a regulator (or an auditor, or
-// a downstream tenant) reading a single receipt cannot answer "what
-// caused this?" The receipts are atomic, not composable.
+// All of the load-bearing logic — CanonicalBytes / Hash / Verify /
+// IsGenesis / Receipt / Chain / the error sentinels — now lives in the
+// SDK and is consumed read-only. The demo no longer carries a forked
+// copy that can drift from the canonical wire format.
 //
-// R-CROSS-INFRA-AUDIT-CHAIN-EMIT (1st saturator: this demo) is the
-// discipline of:
+// # Why a shim and not a bare s/internal\/chain/sdk/ repoint
 //
-//  1. Each emitter includes a `prev_receipt_hash` field in its
-//     payload, chosen as the SHA-256 over the canonical bytes of the
-//     immediately-preceding receipt in the pipeline.
-//  2. The receipts form a strictly-ordered sequence — receipt R_i
-//     is the cryptographic descendant of receipt R_{i-1}.
-//  3. The chain is bottom-up verifiable: a verifier walks from R_1
-//     forward, recomputing each prev_receipt_hash and re-verifying
-//     each signature, and rejects the chain if ANY step fails.
+// The SDK deliberately makes SignerID an OPEN string type (any caller-
+// defined signer is accepted at the chain layer; closed-set enforcement
+// is opt-in via Chain.RequireSigners). The I20 demo, by contrast,
+// hard-codes a CLOSED set of five signers (delve / grounded / recall /
+// echo / parallax) and rejects anything else. Two demo-specific
+// behaviours therefore do NOT exist in the open SDK and are preserved
+// here:
 //
-// Tampering with any receipt in the middle of the chain breaks
-// either (a) the signature on that receipt (if the payload was
-// edited) or (b) the prev-hash on the next receipt (if the receipt
-// was substituted). The chain is therefore tamper-evident as a
-// composite even though each individual receipt is independently
-// signed by a different emitter.
+//  1. The five signer constants + AllSignerIDs / IsKnownSignerID, which
+//     internal/emitters and the test suite reference directly.
+//  2. The closed-set rejection semantics: a chain whose receipt carries
+//     a signer outside the five-set must fail Verify with
+//     ErrUnknownSigner. The shim's Chain.Verify pins the embedded SDK
+//     chain's RequireSigners to the five-set so the SDK's open-by-
+//     default Verify enforces the demo's closed set.
 //
-// # Honest scope
+// The shim keeps the package's exported surface byte-for-byte identical
+// (same type names, constants, funcs, error vars), so internal/emitters,
+// cmd/, and every existing test compile and behave UNCHANGED — only the
+// implementation underneath is now the SDK.
 //
-// This package implements the chain composition primitive only — it
-// does NOT verify the upstream signatures. Each receipt carries a
-// signer-id and a payload-hash; the chain layer enforces the
-// prev-receipt-hash linkage. Substrate signature verification is the
-// responsibility of the individual emitter SDKs (delve / grounded /
-// recall / echo / parallax) whose public verification interfaces
-// the demo's `internal/emitters/` package stands in for at I20 ship.
+// # Honest scope (unchanged from the fork)
 //
-// At I20 ship, signature verification uses the cohort's Mirror-Mark
-// HMAC primitive (`internal/mirrormark`) as a placeholder — when the
-// five upstream SDKs land their respective signature surfaces, the
-// chain verifier will dispatch on Receipt.SignerID to the matching
-// verifier. The dispatch is a one-line table-driven swap.
+// This package implements the chain composition primitive only — it does
+// NOT itself verify upstream signatures. Each receipt carries a signer-id
+// and a payload-hash; the chain layer enforces the prev-receipt-hash
+// linkage + temporal ordering and dispatches each receipt's signature to
+// a caller-supplied VerifierFunc. The demo wires a REAL Mirror-Mark
+// verifier (internal/emitters.MirrorMarkVerifier); the structural-only
+// nil-verifier path is NEVER used on the demo's verification surface.
 package chain
 
-import (
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
-	"fmt"
-	"sort"
-	"strings"
-	"time"
-)
+import sdk "github.com/davly/limitless-audit-chain/pkg/chain"
 
-// SignerID identifies which upstream emitter signed the receipt.
-//
-// The five canonical signer IDs match the five I20 pipeline steps.
-type SignerID string
+// ----- Canonical SDK types, re-exported so importers are unchanged -----
 
+// SignerID identifies which upstream emitter signed the receipt. Aliased
+// to the SDK's open SignerID type; the demo layers its closed five-set
+// on top via the constants + Chain.Verify below.
+type SignerID = sdk.SignerID
+
+// Receipt is a single signed step in the cross-infra audit chain. Aliased
+// to the canonical SDK Receipt — same wire format / CanonicalBytes / Hash.
+type Receipt = sdk.Receipt
+
+// VerifierFunc verifies the signature of a single receipt. Aliased to the
+// SDK's VerifierFunc (identical signature `func(Receipt) error`).
+type VerifierFunc = sdk.VerifierFunc
+
+// GenesisPrevHash is the 64-character "no-predecessor" sentinel. Sourced
+// from the SDK so the genesis constant cannot drift between the two.
+const GenesisPrevHash = sdk.GenesisPrevHash
+
+// ----- Demo-specific closed-set signer cohort (NOT in the open SDK) -----
+
+// The five canonical signer IDs match the five I20 pipeline steps. The
+// SDK has no such constants (its SignerID is an open string type), so the
+// demo declares them locally and enforces the closed set in Chain.Verify.
 const (
 	SignerDelve    SignerID = "delve"
 	SignerGrounded SignerID = "grounded"
@@ -95,212 +98,65 @@ func IsKnownSignerID(s SignerID) bool {
 	return false
 }
 
-// Receipt is a single signed step in the cross-infra audit chain.
+// ----- Error sentinels, re-exported as errors.Is targets -----
 //
-// Wire format (sorted-key, newline-delimited UTF-8):
+// Aliased to the SDK sentinels so callers' errors.Is(err, chain.ErrX)
+// continues to match the errors the SDK's Verify returns.
+var (
+	ErrEmptyChain        = sdk.ErrEmptyChain
+	ErrGenesisPrevHash   = sdk.ErrGenesisPrevHash
+	ErrUnknownSigner     = sdk.ErrUnknownSigner
+	ErrPrevHashMismatch  = sdk.ErrPrevHashMismatch
+	ErrTimestampInverted = sdk.ErrTimestampInverted
+	ErrEmptySignature    = sdk.ErrEmptySignature
+	ErrSignatureMismatch = sdk.ErrSignatureMismatch
+)
+
+// ----- Chain: thin wrapper pinning the demo's closed signer set -----
+
+// Chain wraps the SDK chain. It exists only to pin RequireSigners to the
+// demo's closed five-set during Verify, so the demo's "unknown signer
+// rejected" semantics (chain_test.go TestVerify_UnknownSignerRejected)
+// are preserved against the SDK's open-by-default Verify. Every other
+// method delegates straight to the embedded SDK chain.
 //
-//	prev_receipt_hash: <hex SHA-256 of preceding receipt's canonical bytes, or 64-char "0" string for genesis>
-//	payload_hash: <hex SHA-256 of the emitter's payload bytes>
-//	signer_id: <one of: delve | grounded | recall | echo | parallax>
-//	timestamp: <RFC3339 UTC>
-//
-// The Signature field is computed OVER the canonical bytes above by
-// the emitter's signing primitive (Mirror-Mark today; per-emitter
-// signature in a follow-up M-slot). The chain verifier RE-derives
-// the canonical bytes from the four fields and feeds them to the
-// signature verifier.
-type Receipt struct {
-	// PrevReceiptHash is the hex-encoded SHA-256 over the canonical
-	// bytes of the immediately-preceding Receipt in the chain.
-	//
-	// For the genesis receipt (no predecessor), this is the
-	// 64-character string of '0' digits — a sentinel chosen to be
-	// distinct from any real SHA-256 output AND grep-discoverable.
-	PrevReceiptHash string
-
-	// PayloadHash is the hex-encoded SHA-256 over the emitter's
-	// domain-specific payload bytes (e.g. delve's schema-card,
-	// grounded's citation, recall's cache entry, etc.).
-	//
-	// The chain layer does NOT inspect the payload itself — it only
-	// commits to the payload's hash. The emitter SDK is responsible
-	// for binding the payload bytes back to the hash on the verify
-	// side.
-	PayloadHash string
-
-	// SignerID identifies which emitter signed this receipt.
-	SignerID SignerID
-
-	// Timestamp is the UTC RFC3339 time at which the receipt was
-	// signed.
-	Timestamp time.Time
-
-	// Signature is the emitter's signature over the canonical bytes
-	// of (PrevReceiptHash, PayloadHash, SignerID, Timestamp).
-	//
-	// At I20 ship, Signature is a Mirror-Mark (cohort HMAC-SHA256
-	// receipt) computed by the chain layer's KAT-1 keying. When the
-	// five upstream SDKs land their per-signer signature surfaces,
-	// the chain verifier will dispatch on SignerID.
-	Signature string
-}
-
-// GenesisPrevHash is the 64-character sentinel used as the
-// PrevReceiptHash of a chain's first receipt. Chosen distinct from
-// any real SHA-256 output (all-zero hex is also valid SHA-256 output
-// in principle, but the cohort uses '0'×64 specifically as a
-// "no-predecessor" signal that is grep-discoverable in audit logs).
-const GenesisPrevHash = "0000000000000000000000000000000000000000000000000000000000000000"
-
-// CanonicalBytes returns the deterministic, sort-stable, newline-
-// delimited UTF-8 representation of the receipt's signed fields.
-//
-// The signer hashes / signs OVER these bytes. The verifier
-// re-derives these bytes from the stored Receipt + feeds them to
-// the signature verifier. Bit-equal across emitter implementations.
-//
-// Field ordering is alphabetical-stable.
-func (r Receipt) CanonicalBytes() []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, "payload_hash: %s\n", r.PayloadHash)
-	fmt.Fprintf(&b, "prev_receipt_hash: %s\n", r.PrevReceiptHash)
-	fmt.Fprintf(&b, "signer_id: %s\n", r.SignerID)
-	fmt.Fprintf(&b, "timestamp: %s\n", r.Timestamp.UTC().Format(time.RFC3339))
-	return []byte(b.String())
-}
-
-// Hash returns the hex-encoded SHA-256 of the receipt's canonical
-// bytes. This is the value the NEXT receipt in the chain stores in
-// its PrevReceiptHash field.
-func (r Receipt) Hash() string {
-	sum := sha256.Sum256(r.CanonicalBytes())
-	return hex.EncodeToString(sum[:])
-}
-
-// IsGenesis returns true when r is the first receipt in a chain
-// (PrevReceiptHash = GenesisPrevHash).
-func (r Receipt) IsGenesis() bool {
-	return r.PrevReceiptHash == GenesisPrevHash
-}
-
-// Chain is an ordered sequence of Receipts forming a verifiable
-// audit trail across the five-emitter pipeline.
+// The zero value is a valid empty chain (the embedded sdk.Chain's zero
+// value is valid), so `&chain.Chain{}` literal construction — used in
+// main.go and the test suite — continues to work unchanged. Field access
+// to c.Receipts resolves through the embedded sdk.Chain.
 type Chain struct {
-	Receipts []Receipt
+	sdk.Chain
 }
 
 // Append adds a receipt to the chain. The caller is responsible for
-// setting the receipt's PrevReceiptHash correctly — the chain layer
-// does NOT compute it automatically. (The cohort discipline: the
-// emitter computes the prev-hash from the parent receipt visible to
-// it at signing time — the chain is the verifier, not the builder.)
-func (c *Chain) Append(r Receipt) {
-	c.Receipts = append(c.Receipts, r)
-}
+// setting the receipt's PrevReceiptHash correctly — the chain layer does
+// NOT compute it automatically.
+func (c *Chain) Append(r Receipt) { c.Chain.Append(r) }
 
 // Len returns the chain length.
-func (c *Chain) Len() int { return len(c.Receipts) }
+func (c *Chain) Len() int { return c.Chain.Len() }
 
-// ErrEmptyChain — Verify called on a zero-length chain.
-var ErrEmptyChain = errors.New("chain: empty chain (nothing to verify)")
+// SignerSequence returns the signer IDs in append order.
+func (c *Chain) SignerSequence() []SignerID { return c.Chain.SignerSequence() }
 
-// ErrGenesisPrevHash — first receipt's PrevReceiptHash is not the
-// canonical sentinel.
-var ErrGenesisPrevHash = errors.New("chain: first receipt PrevReceiptHash must be the genesis sentinel")
+// SortedReceiptsCopy returns a defensive copy of the chain's receipts
+// sorted by Timestamp ascending.
+func (c *Chain) SortedReceiptsCopy() []Receipt { return c.Chain.SortedReceiptsCopy() }
 
-// ErrPrevHashMismatch — non-genesis receipt's PrevReceiptHash does
-// not equal the predecessor's computed Hash.
-var ErrPrevHashMismatch = errors.New("chain: prev_receipt_hash does not match predecessor's Hash()")
-
-// ErrUnknownSigner — receipt's SignerID is not in the closed-set
-// cohort.
-var ErrUnknownSigner = errors.New("chain: unknown SignerID (not in closed-set cohort)")
-
-// ErrTimestampInverted — receipt's Timestamp is earlier than the
-// predecessor's.
-var ErrTimestampInverted = errors.New("chain: receipt timestamp earlier than predecessor (chain is not temporally ordered)")
-
-// ErrEmptySignature — receipt is missing its signature.
-var ErrEmptySignature = errors.New("chain: receipt missing signature")
-
-// ErrSignatureMismatch — receipt's signature did not verify under
-// the supplied verifier.
-var ErrSignatureMismatch = errors.New("chain: signature did not verify")
-
-// VerifierFunc verifies the signature of a single receipt. The
-// chain library calls this once per receipt, in order, during Verify.
+// Verify enforces the demo's closed signer set, then delegates to the
+// SDK's Verify. It pins RequireSigners to AllSignerIDs() (idempotently)
+// so a signer outside the five-set is rejected with ErrUnknownSigner —
+// the demo's closed-set semantics — even though the SDK's Verify accepts
+// any non-empty signer by default.
 //
-// The default verifier (DefaultMirrorMarkVerifier) checks the
-// Mirror-Mark HMAC-SHA256 signature using the demo's KAT-1 keying.
-// A future M-slot will introduce a dispatch verifier that selects
-// the per-signer signature surface based on Receipt.SignerID.
-type VerifierFunc func(r Receipt) error
-
-// Verify walks the chain bottom-up (genesis to tip) and rejects on
-// the first failure. Returns nil iff every receipt is structurally
-// valid AND every prev-hash link is recomputed-matching AND every
-// signature verifies under verifier.
-//
-// Bottom-up (chronological) walk — the cohort discipline names this
-// "bottom-up" because the chain is a tree whose leaves are the
-// emitter outputs at the wire and whose root is the genesis. We
-// walk from root → leaves, which is bottom-to-top of the trust
-// hierarchy (the genesis is the trust anchor).
-func (c *Chain) Verify(verifier VerifierFunc) error {
-	if len(c.Receipts) == 0 {
-		return ErrEmptyChain
+// SECURITY: callers MUST pass a real VerifierFunc (e.g.
+// internal/emitters.MirrorMarkVerifier). A nil verifier would make the
+// SDK skip per-receipt signature checks (structural-only) and hollow out
+// the tamper-evidence claim; the demo's verification surface never does
+// this.
+func (c *Chain) Verify(v VerifierFunc) error {
+	if c.Chain.RequireSigners == nil {
+		c.Chain.RequireSigners = AllSignerIDs()
 	}
-	if c.Receipts[0].PrevReceiptHash != GenesisPrevHash {
-		return ErrGenesisPrevHash
-	}
-	for i, r := range c.Receipts {
-		if !IsKnownSignerID(r.SignerID) {
-			return fmt.Errorf("%w: receipt[%d].SignerID=%q", ErrUnknownSigner, i, r.SignerID)
-		}
-		if r.Signature == "" {
-			return fmt.Errorf("%w: receipt[%d]", ErrEmptySignature, i)
-		}
-		if i > 0 {
-			parent := c.Receipts[i-1]
-			expected := parent.Hash()
-			if r.PrevReceiptHash != expected {
-				return fmt.Errorf("%w: receipt[%d].PrevReceiptHash=%s, expected=%s",
-					ErrPrevHashMismatch, i, r.PrevReceiptHash, expected)
-			}
-			if r.Timestamp.Before(parent.Timestamp) {
-				return fmt.Errorf("%w: receipt[%d].Timestamp=%s, parent=%s",
-					ErrTimestampInverted, i,
-					r.Timestamp.UTC().Format(time.RFC3339),
-					parent.Timestamp.UTC().Format(time.RFC3339))
-			}
-		}
-		if err := verifier(r); err != nil {
-			return fmt.Errorf("%w: receipt[%d] signer=%s: %v",
-				ErrSignatureMismatch, i, r.SignerID, err)
-		}
-	}
-	return nil
-}
-
-// SignerSequence returns the signer IDs in append order — used by
-// tests + the CLI to assert pipeline order without exposing the
-// full receipt bodies.
-func (c *Chain) SignerSequence() []SignerID {
-	out := make([]SignerID, 0, len(c.Receipts))
-	for _, r := range c.Receipts {
-		out = append(out, r.SignerID)
-	}
-	return out
-}
-
-// SortedReceiptsCopy returns a defensive copy of the chain's
-// receipts sorted by Timestamp ascending. Used by audit-export
-// surfaces that emit a canonical timeline view.
-func (c *Chain) SortedReceiptsCopy() []Receipt {
-	out := make([]Receipt, len(c.Receipts))
-	copy(out, c.Receipts)
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].Timestamp.Before(out[j].Timestamp)
-	})
-	return out
+	return c.Chain.Verify(v)
 }

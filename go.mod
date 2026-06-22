@@ -2,6 +2,17 @@ module github.com/davly/limitless-audit-chain-demo
 
 go 1.22
 
+// Consume the cohort-canonical audit-chain SDK (SDK extraction #8)
+// instead of the in-tree fork. The demo's internal/chain package is now
+// a thin re-export shim over this module (see internal/chain/chain.go).
+//
+// OD-2: path `replace` to the sibling monorepo module — the SDK has no
+// published tag yet, so a path replace is the only wiring available now.
+// A future M-slot may pin a tagged pseudo-version once the SDK ships.
+require github.com/davly/limitless-audit-chain v0.0.0-00010101000000-000000000000
+
+replace github.com/davly/limitless-audit-chain => ../../sdk/limitless-audit-chain
+
 // NOTE on dependencies (I20, 2026-05-28 — INFRA marathon):
 //
 // The "expected" production composition imports five sibling SDKs:
