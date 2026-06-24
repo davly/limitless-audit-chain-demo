@@ -5,7 +5,9 @@
 //
 // Subcommands:
 //
-//	run                  Run the 5-step pipeline + print the chain + verify
+//	run [--expect-tip H] Run the 5-step pipeline + print the chain + verify;
+//	                     with --expect-tip, also assert the chain ends at hex
+//	                     tip H (cold-verify tail-truncation / removal guard)
 //	advisories           List R143 honest advisories (cohort discipline reminders)
 //	footer               Print the founder-drafted legal footer (R166)
 //	kat1                 Print KAT-1 cohort hex + OpenSSL cold-verify recipe
@@ -33,7 +35,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `Usage: audit-chain-demo <command> [flags]
 
 Commands:
-  run                  Run the 5-step pipeline + print + verify the chain
+  run [--expect-tip H] Run the 5-step pipeline + print + verify the chain;
+                       with --expect-tip, also assert the chain ends at hex
+                       tip H (cold-verify truncation / receipt-removal guard)
   advisories           List R143 honest advisories
   footer               Print the founder-drafted legal footer
   kat1                 Print KAT-1 cohort hex + OpenSSL cold-verify recipe
@@ -68,8 +72,9 @@ func main() {
 		fmt.Printf("audit-chain-demo %s\n", version)
 
 	case "run":
+		expectTip := fs.String("expect-tip", "", "if set, additionally assert the chain ends at this hex tip hash (cold-verify truncation guard); see VerifyToTip")
 		_ = fs.Parse(rest)
-		if err := runDemo(os.Stdout); err != nil {
+		if err := runDemo(os.Stdout, *expectTip); err != nil {
 			fmt.Fprintf(os.Stderr, "demo run: %v\n", err)
 			os.Exit(3)
 		}
@@ -139,7 +144,14 @@ func main() {
 //	Step 5: parallax emits a job dispatch receipt (R5, chains R4).
 //
 // Returns nil iff the chain verifies under MirrorMarkVerifier.
-func runDemo(out *os.File) error {
+//
+// If expectTipHash is non-empty, runDemo ADDITIONALLY asserts the
+// chain ends at that hex tip hash via chain.VerifyToTip — the
+// cold-verify recipe for detecting tail-truncation / receipt-removal.
+// A regulator handed "a chain that must end at receipt H" runs
+// `audit-chain-demo run --expect-tip H`; a truncated chain fails with
+// ErrTipMismatch even though plain Verify would pass.
+func runDemo(out *os.File, expectTipHash string) error {
 	t0 := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 	step := time.Second
 
@@ -185,6 +197,18 @@ func runDemo(out *os.File) error {
 	}
 	fmt.Fprintf(out, "Chain verification: PASS  (5/5 receipts verified, 4/4 prev-hash links intact)\n")
 	fmt.Fprintf(out, "Signer sequence: %v\n", c.SignerSequence())
+
+	// The genuine tip hash (R5) — the value a cold-verifier would be
+	// handed out-of-band and feed back via --expect-tip.
+	tip := c.Receipts[len(c.Receipts)-1].Hash()
+	fmt.Fprintf(out, "Chain tip (R5 hash): %s\n", tip)
+
+	if expectTipHash != "" {
+		if err := c.VerifyToTip(verifier, expectTipHash); err != nil {
+			return fmt.Errorf("chain VerifyToTip (truncation guard): %w", err)
+		}
+		fmt.Fprintf(out, "Tip assertion: PASS  (chain ends at expected tip — no tail-truncation)\n")
+	}
 	return nil
 }
 

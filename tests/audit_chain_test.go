@@ -6,6 +6,7 @@ package tests
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,81 @@ func TestEndToEnd_SwappingSignerBreaksChain(t *testing.T) {
 	verifier := emitters.MirrorMarkVerifier()
 	if err := c.Verify(verifier); err == nil {
 		t.Fatalf("signer-swap chain unexpectedly verified")
+	}
+}
+
+// TestEndToEnd_TruncationPassesPlainVerifyButFailsVerifyToTip is the
+// truncation / receipt-removal guard test.
+//
+// It documents the gap (plain Verify is BLIND to tail-truncation) and
+// proves the new VerifyToTip closes it: build the canonical 5-step
+// chain, capture the genuine tip hash (R5), then drop R5 (the parallax
+// job-dispatch record). The 4-receipt remnant STILL passes plain
+// Verify — genesis intact, every prev-hash links, every signature
+// verifies — but VerifyToTip(expectedTip = R5.Hash()) FAILS with
+// ErrTipMismatch, and VerifyN(wantLen = 5) FAILS with
+// ErrLengthMismatch.
+//
+// Discrimination: revert the VerifyToTip / VerifyN guard bodies (so
+// they just delegate to Verify) and the two errors.Is assertions below
+// fail — the test only passes because the guards actually detect the
+// dropped tip.
+func TestEndToEnd_TruncationPassesPlainVerifyButFailsVerifyToTip(t *testing.T) {
+	t0 := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	step := time.Second
+	c := &chain.Chain{}
+
+	r1 := emitters.EmitDelveReceipt([]byte("p1"), chain.GenesisPrevHash, t0)
+	c.Append(r1)
+	r2 := emitters.EmitGroundedReceipt([]byte("p2"), r1.Hash(), t0.Add(step))
+	c.Append(r2)
+	r3 := emitters.EmitRecallReceipt([]byte("p3"), r2.Hash(), t0.Add(2*step))
+	c.Append(r3)
+	r4 := emitters.EmitEchoReceipt([]byte("p4"), r3.Hash(), t0.Add(3*step))
+	c.Append(r4)
+	r5 := emitters.EmitParallaxReceipt([]byte("p5"), r4.Hash(), t0.Add(4*step))
+	c.Append(r5)
+
+	verifier := emitters.MirrorMarkVerifier()
+
+	// The genuine 5-receipt chain verifies and its tip is R5.
+	if err := c.Verify(verifier); err != nil {
+		t.Fatalf("intact 5-chain Verify: %v", err)
+	}
+	genuineTip := r5.Hash()
+	if err := c.VerifyToTip(verifier, genuineTip); err != nil {
+		t.Fatalf("intact 5-chain VerifyToTip(genuineTip): %v", err)
+	}
+	if err := c.VerifyN(verifier, 5); err != nil {
+		t.Fatalf("intact 5-chain VerifyN(5): %v", err)
+	}
+
+	// Adversary drops the trailing receipt (R5) — the record of the
+	// last thing that happened (the parallax job dispatch).
+	c.Receipts = c.Receipts[:4]
+
+	// GAP: the truncated chain STILL passes plain Verify.
+	if err := c.Verify(verifier); err != nil {
+		t.Fatalf("truncated chain unexpectedly failed plain Verify (documents the gap): %v", err)
+	}
+
+	// GUARD: a verifier told the chain must end at R5 detects the
+	// truncation.
+	if err := c.VerifyToTip(verifier, genuineTip); !errors.Is(err, chain.ErrTipMismatch) {
+		t.Fatalf("truncated chain VerifyToTip(R5): got %v, want ErrTipMismatch", err)
+	}
+
+	// GUARD: a verifier told the chain has 5 receipts detects the
+	// truncation.
+	if err := c.VerifyN(verifier, 5); !errors.Is(err, chain.ErrLengthMismatch) {
+		t.Fatalf("truncated chain VerifyN(5): got %v, want ErrLengthMismatch", err)
+	}
+
+	// And the truncated chain matches ITS OWN new tip (R4) — the guard
+	// is not a blanket failure, it specifically detects the mismatch
+	// against the expected (pre-truncation) endpoint.
+	if err := c.VerifyToTip(verifier, r4.Hash()); err != nil {
+		t.Fatalf("truncated chain VerifyToTip(R4=its own tip) should pass: %v", err)
 	}
 }
 

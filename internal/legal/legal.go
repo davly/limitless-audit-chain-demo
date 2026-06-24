@@ -70,6 +70,17 @@ any regulatory regime, or the legal sufficiency of the chain for
 any specific audit purpose. Those determinations require qualified
 counsel + a substantive review of the specific deployment.
 
+A precise note on the tamper-evidence property: plain chain.Verify
+detects tampering with or substitution of any receipt in the MIDDLE
+of the chain, but it does NOT, on its own, detect silent removal of
+the most-recent (trailing) receipts — the wire-format commits to no
+sequence index, chain-length, or tip marker. Tail-truncation is
+detectable only when the cold-verifier knows the chain's expected
+endpoint out-of-band and supplies it via chain.VerifyToTip (expected
+tip hash) or chain.VerifyN (expected length); see the
+internal/chain package documentation and the "run --expect-tip" CLI
+recipe.
+
 No representation is made that the demo, on its own, satisfies any
 regulatory requirement. Use of the chain composition primitive in
 a regulated runtime is the responsibility of the deploying party.

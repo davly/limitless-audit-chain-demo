@@ -40,6 +40,25 @@
 // composite even though each individual receipt is independently
 // signed by a different emitter.
 //
+// # Truncation is detectable only with an expected tip
+//
+// The signed canonical bytes (Receipt.CanonicalBytes) commit to
+// payload_hash, prev_receipt_hash, signer_id and timestamp ONLY —
+// there is no sequence index, no chain-length commitment, and no
+// tip/last-receipt marker. Consequently plain Verify, while it
+// catches middle-of-chain tamper, CANNOT detect that the trailing
+// receipts were silently removed: an adversary holding a valid
+// N-receipt chain can drop the last receipt(s) (e.g. the parallax
+// job-dispatch record of what happened last) and the shorter chain
+// still passes Verify — genesis intact, every prev-hash links, every
+// signature verifies. This is the classic append-only-log truncation
+// gap. To close it for a cold-verify workflow, the verifier must know
+// the chain's expected endpoint out-of-band: use VerifyToTip (assert
+// the chain ends at a known receipt hash) or VerifyN (assert the
+// chain has a known length), which return ErrTipMismatch /
+// ErrLengthMismatch on truncation. Plain Verify remains correct for
+// callers who legitimately hold a variable-length chain.
+//
 // # Honest scope
 //
 // This package implements the chain composition primitive only — it
@@ -58,6 +77,7 @@
 package chain
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -227,6 +247,21 @@ var ErrEmptySignature = errors.New("chain: receipt missing signature")
 // the supplied verifier.
 var ErrSignatureMismatch = errors.New("chain: signature did not verify")
 
+// ErrTipMismatch — the chain's last receipt Hash() does not equal the
+// expected tip supplied to VerifyToTip. This is the truncation /
+// receipt-removal guard: a structurally-valid chain whose trailing
+// receipts have been dropped passes plain Verify (genesis intact,
+// every prev-hash links, every signature verifies) but FAILS
+// VerifyToTip when the verifier was told the chain must end at a
+// specific receipt hash.
+var ErrTipMismatch = errors.New("chain: chain tip does not match expected tip (possible tail-truncation / receipt-removal)")
+
+// ErrLengthMismatch — the chain's length does not equal the expected
+// length supplied to VerifyN. The length-pinned sibling of
+// ErrTipMismatch for callers who were handed an expected receipt
+// count rather than a tip hash.
+var ErrLengthMismatch = errors.New("chain: chain length does not match expected length (possible tail-truncation / receipt-removal)")
+
 // VerifierFunc verifies the signature of a single receipt. The
 // chain library calls this once per receipt, in order, during Verify.
 //
@@ -278,6 +313,74 @@ func (c *Chain) Verify(verifier VerifierFunc) error {
 			return fmt.Errorf("%w: receipt[%d] signer=%s: %v",
 				ErrSignatureMismatch, i, r.SignerID, err)
 		}
+	}
+	return nil
+}
+
+// VerifyToTip runs the full Verify walk AND additionally asserts that
+// the chain ends at the receipt whose Hash() equals expectedTipHash.
+//
+// # Why this exists (the tail-truncation guard)
+//
+// Plain Verify proves every receipt is structurally valid, every
+// prev-hash links forward, and every signature verifies — but it
+// CANNOT detect that trailing receipts were silently removed. The
+// signed canonical bytes (CanonicalBytes) commit to payload_hash,
+// prev_receipt_hash, signer_id and timestamp only — there is no
+// sequence index, no chain-length commitment, and no tip marker. So
+// an adversary holding a valid N-receipt chain can drop the trailing
+// receipts (e.g. the last parallax job-dispatch record) and the
+// shorter chain still passes Verify with zero errors: genesis intact,
+// every prev-hash links, every signature still verifies. For an
+// append-only audit log this is the classic truncation gap.
+//
+// VerifyToTip closes that gap for the cold-verify workflow: a
+// regulator (or any verifier) who was handed "a chain that must end
+// at receipt H" passes H as expectedTipHash; if the chain was
+// truncated, the recomputed tip no longer matches H and VerifyToTip
+// returns ErrTipMismatch. Callers who genuinely hold a
+// variable-length chain (and have no out-of-band tip) keep using
+// plain Verify — this method is strictly additive and changes no
+// wire-format, signature, or canonical-bytes behaviour.
+//
+// Returns the same errors as Verify on a structurally-invalid chain,
+// plus ErrEmptyChain when the chain is empty and ErrTipMismatch when
+// the (structurally-valid) chain's tip does not equal expectedTipHash.
+func (c *Chain) VerifyToTip(verifier VerifierFunc, expectedTipHash string) error {
+	if err := c.Verify(verifier); err != nil {
+		return err
+	}
+	// Verify guarantees len(c.Receipts) > 0 here (empty chains return
+	// ErrEmptyChain above), so indexing the tip is safe.
+	gotTip := c.Receipts[len(c.Receipts)-1].Hash()
+	// hmac.Equal is used for uniformity with the cohort's
+	// constant-time comparison idiom even though both operands are
+	// public hex hashes (no secret-dependent timing here).
+	if !hmac.Equal([]byte(gotTip), []byte(expectedTipHash)) {
+		return fmt.Errorf("%w: got tip=%s, expected=%s", ErrTipMismatch, gotTip, expectedTipHash)
+	}
+	return nil
+}
+
+// VerifyN runs the full Verify walk AND additionally asserts that the
+// chain contains exactly wantLen receipts.
+//
+// This is the length-pinned sibling of VerifyToTip for the cold-verify
+// workflow where the regulator was handed "a chain of exactly N
+// receipts" rather than a tip hash. It catches the same
+// tail-truncation / receipt-removal gap (plain Verify is blind to a
+// dropped trailing receipt) via the chain-length commitment the wire
+// format does not carry. Strictly additive; no wire-format change.
+//
+// Returns the same errors as Verify on a structurally-invalid chain,
+// plus ErrLengthMismatch when the (structurally-valid) chain's length
+// does not equal wantLen.
+func (c *Chain) VerifyN(verifier VerifierFunc, wantLen int) error {
+	if err := c.Verify(verifier); err != nil {
+		return err
+	}
+	if got := len(c.Receipts); got != wantLen {
+		return fmt.Errorf("%w: got length=%d, expected=%d", ErrLengthMismatch, got, wantLen)
 	}
 	return nil
 }
