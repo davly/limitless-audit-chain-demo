@@ -10,9 +10,10 @@ import (
 )
 
 // ExpectedPackages returns the canonical list of internal/ packages
-// limitless-audit-chain-demo ships as of W58 (2026-05-29 R193 wire-in).
+// limitless-audit-chain-demo ships as of W58 (2026-05-29 R193 wire-in)
+// + the quarry-db x-poll persist addition.
 //
-// 9 packages:
+// 10 packages (8 inception + crosssdk W58 wire-in + persist x-poll):
 //   - chain      (load-bearing composition library — the SHOWCASE)
 //   - crosssdk   (W58 R193 real-import wire-in — recall+grounded+delve cohort/lore)
 //   - emitters   (I20 stand-ins for delve/grounded/recall/echo/parallax)
@@ -22,10 +23,13 @@ import (
 //   - lore       (R151 KAT-1 pin)
 //   - manifest   (R150)
 //   - mirrormark (L43 — placeholder signature surface today)
+//   - persist    (x-poll quarry-db: FNV-1a 64-bit shard keys +
+//                Beta-Binomial convergence engine for write-once
+//                PostgreSQL receipt backing store)
 //
 // The R174 5-of-5 "core cohort" is: lore + mirrormark + manifest +
-// honest + firewall. The demo adds 4 domain packages on top: chain +
-// crosssdk + emitters + legal (legal joins the R166 cohort).
+// honest + firewall. The demo adds 5 domain packages on top: chain +
+// crosssdk + emitters + legal (R166) + persist (quarry-db x-poll).
 func ExpectedPackages() []string {
 	return []string{
 		"chain",
@@ -37,6 +41,7 @@ func ExpectedPackages() []string {
 		"lore",
 		"manifest",
 		"mirrormark",
+		"persist",
 	}
 }
 
