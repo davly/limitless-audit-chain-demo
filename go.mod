@@ -2,6 +2,37 @@ module github.com/davly/limitless-audit-chain-demo
 
 go 1.22
 
+// W58 (2026-05-29) — R193 wire-in: first real-import consumer extraction.
+//
+// The new `internal/crosssdk/` package imports the SDK-side cohort/lore
+// packages from THREE upstream infrastructure SDKs published at
+// github.com/davly/{recall,grounded,delve}-go. These are the FIRST real
+// import edges in this flagship — the I20-STAND-IN emitter surfaces
+// under `internal/emitters/` remain stand-ins pending per-emitter
+// receipt-surface stabilisation (see legacy note below).
+//
+// The cross-SDK KAT-1 parity check is structurally R151 (cohort
+// firewall pin) and structurally R193's "smallest honest wire-in"
+// satisfier. A regulator (or `go mod graph`) reading this go.mod sees
+// three honest `require` lines + matching `import` directives in
+// `internal/crosssdk/crosssdk.go`.
+//
+// The `replace` directives below point at the on-disk SDK working
+// trees during development; tagged-module CI will resolve to the
+// published versions.
+
+require (
+	github.com/davly/delve-go v0.0.0-00010101000000-000000000000
+	github.com/davly/grounded-go v0.0.0-00010101000000-000000000000
+	github.com/davly/recall-go v0.0.0-00010101000000-000000000000
+)
+
+replace (
+	github.com/davly/delve-go => ../../sdk/delve-go
+	github.com/davly/grounded-go => ../../sdk/grounded-go
+	github.com/davly/recall-go => ../../sdk/recall-go
+)
+
 // NOTE on dependencies (I20, 2026-05-28 — INFRA marathon):
 //
 // The "expected" production composition imports five sibling SDKs:

@@ -5,14 +5,15 @@
 //
 // Subcommands:
 //
-//	run [--expect-tip H] Run the 5-step pipeline + print the chain + verify;
-//	                     with --expect-tip, also assert the chain ends at hex
-//	                     tip H (cold-verify tail-truncation / removal guard)
-//	advisories           List R143 honest advisories (cohort discipline reminders)
-//	footer               Print the founder-drafted legal footer (R166)
-//	kat1                 Print KAT-1 cohort hex + OpenSSL cold-verify recipe
-//	manifest             Print the R150 manifest entries
-//	version              Print the demo's version string
+//	run [--expect-tip H]    Run the 5-step pipeline + print the chain + verify;
+//	                        with --expect-tip, also assert the chain ends at hex
+//	                        tip H (cold-verify tail-truncation / removal guard)
+//	advisories              List R143 honest advisories (cohort discipline reminders)
+//	footer                  Print the founder-drafted legal footer (R166)
+//	kat1                    Print KAT-1 cohort hex + OpenSSL cold-verify recipe
+//	cross-substrate-kat1    W58 R193 wire-in — verify cross-SDK KAT-1 parity
+//	manifest                Print the R150 manifest entries
+//	version                 Print the demo's version string
 package main
 
 import (
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/davly/limitless-audit-chain-demo/internal/chain"
+	"github.com/davly/limitless-audit-chain-demo/internal/crosssdk"
 	"github.com/davly/limitless-audit-chain-demo/internal/emitters"
 	"github.com/davly/limitless-audit-chain-demo/internal/honest"
 	"github.com/davly/limitless-audit-chain-demo/internal/legal"
@@ -29,26 +31,33 @@ import (
 	"github.com/davly/limitless-audit-chain-demo/internal/manifest"
 )
 
-const version = "0.1.0-I20-1st-saturator"
+const version = "0.2.0-W58-R193-wire-in"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `Usage: audit-chain-demo <command> [flags]
 
 Commands:
-  run [--expect-tip H] Run the 5-step pipeline + print + verify the chain;
-                       with --expect-tip, also assert the chain ends at hex
-                       tip H (cold-verify truncation / receipt-removal guard)
-  advisories           List R143 honest advisories
-  footer               Print the founder-drafted legal footer
-  kat1                 Print KAT-1 cohort hex + OpenSSL cold-verify recipe
-  manifest             Print the R150 manifest entries
-  version              Print the demo's version string
-  help                 Print this help
+  run [--expect-tip H]    Run the 5-step pipeline + print + verify the chain;
+                          with --expect-tip, also assert the chain ends at hex
+                          tip H (cold-verify truncation / receipt-removal guard)
+  advisories              List R143 honest advisories
+  footer                  Print the founder-drafted legal footer
+  kat1                    Print KAT-1 cohort hex + OpenSSL cold-verify recipe
+  cross-substrate-kat1    Verify cross-SDK KAT-1 parity (W58 R193 wire-in)
+  manifest                Print the R150 manifest entries
+  version                 Print the demo's version string
+  help                    Print this help
 
 R-CROSS-INFRA-AUDIT-CHAIN-EMIT (1st saturator):
   This demo composes signed receipts from five upstream emitters
   (delve -> grounded -> recall -> echo -> parallax) into a single
-  tamper-evident chain. See README.md + CONTEXT.md.`)
+  tamper-evident chain. See README.md + CONTEXT.md.
+
+R193 R-INFRA-WIRE-PROTOCOL-CONSUMER-EXTRACTION (W58 wire-in, 2026-05-29):
+  The cross-substrate-kat1 subcommand imports real cohort/lore packages
+  from github.com/davly/{recall,grounded,delve}-go and asserts KAT-1
+  parity. These are the first verified real-import consumer edges in
+  this flagship.`)
 }
 
 func main() {
@@ -111,6 +120,13 @@ func main() {
 		fmt.Println(`    openssl dgst -sha256 -mac hmac -macopt key: /tmp/kat1.bin`)
 		fmt.Println()
 		fmt.Println("  PASS: KAT-1 matches cohort canonical hex.")
+
+	case "cross-substrate-kat1":
+		_ = fs.Parse(rest)
+		if err := crosssdk.PrintReport(os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "cross-substrate-kat1: %v\n", err)
+			os.Exit(3)
+		}
 
 	case "manifest":
 		_ = fs.Parse(rest)
