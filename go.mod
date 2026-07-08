@@ -20,10 +20,21 @@ go 1.22
 // The `replace` directives below point at the on-disk SDK working
 // trees during development; tagged-module CI will resolve to the
 // published versions.
+//
+// NOTE (2026-06-24 repoint): the sibling internal/chain package used to
+// carry an EQUIVALENT local-path `replace` for the audit-chain SDK
+// (`=> ../../sdk/limitless-audit-chain`) and that footgun broke
+// single-repo CI (the runner has no sibling checkout). That package was
+// repointed onto a resolvable published pseudo-version below. The THREE
+// replaces retained here (delve-go / grounded-go / recall-go) are a
+// KNOWN, currently-accepted instance of the same footgun for the W58
+// crosssdk wire-in; follow-up should repoint them onto published
+// pseudo-versions the same way once those three SDKs are tagged.
 
 require (
 	github.com/davly/delve-go v0.0.0-00010101000000-000000000000
 	github.com/davly/grounded-go v0.0.0-00010101000000-000000000000
+	github.com/davly/limitless-audit-chain v0.0.0-20260604220632-236d52295e13
 	github.com/davly/recall-go v0.0.0-00010101000000-000000000000
 )
 
@@ -32,6 +43,20 @@ replace (
 	github.com/davly/grounded-go => ../../sdk/grounded-go
 	github.com/davly/recall-go => ../../sdk/recall-go
 )
+
+// Consume the cohort-canonical audit-chain SDK (SDK extraction #8)
+// instead of the in-tree fork. The demo's internal/chain package is now
+// a thin re-export shim over this module (see internal/chain/chain.go).
+//
+// The SDK is now published at github.com/davly/limitless-audit-chain
+// (origin/main), so we pin a resolvable pseudo-version and drop the
+// sibling-path `replace`. The local path replace (`=> ../../sdk/...`)
+// broke single-repo CI: the GitHub Actions job does a one-repo checkout
+// then `go build ./...`, so `../../sdk/limitless-audit-chain` did not
+// exist on the runner and the build went RED (the `replace ../../*`
+// footgun). The pinned pseudo-version below is `go list -m @latest` for
+// the module and corresponds to SDK commit 236d522 on origin/main, which
+// carries the exact pkg/chain surface internal/chain/chain.go re-exports.
 
 // NOTE on dependencies (I20, 2026-05-28 — INFRA marathon):
 //
